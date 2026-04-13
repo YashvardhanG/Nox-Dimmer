@@ -9,6 +9,12 @@
   <p align="center">
     A Modern, Portable Screen Dimmer for Windows to Reduce Eye Strain
   </p>
+
+  <p align="center">
+  <a href="https://ko-fi.com/I3I31XL6SJ" target="_blank">
+    <img src="https://img.shields.io/badge/Buy%20me%20a%20coffee!-%235e8bde?style=flat&logo=ko-fi&logoColor=white" alt="Buy me a coffee!">
+  </a>
+</p>
 </p>
 
 <details open="open">

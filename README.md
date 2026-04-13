@@ -76,6 +76,15 @@ Nox is a standalone app.
 3.  Extract the zip file.
 4.  Run `Nox.exe`.
 
+**⚠️ A Note on Windows SmartScreen**
+
+Because Nox Dimmer is a free, open-source indie utility, it does not currently have an expensive publisher certificate. As a result, Windows Defender SmartScreen will likely flag the application as an "unrecognized app" the first time you try to run it.
+
+This is completely normal for new indie software. To safely run Nox:
+- Click "More info" on the SmartScreen popup.
+- Click the "Run anyway" button that appears.
+(If you ever have security concerns, the full source code is always open and available to review right here in the repository!)
+
 That's it! No installation wizard required.
 
 ## Development Setup

@@ -12,6 +12,7 @@ import winreg
 import atexit
 import subprocess
 import webbrowser
+import json
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(1)
@@ -21,7 +22,20 @@ except Exception:
     except Exception:
         pass
 
-# --- Structures for Ctypes ---
+try:
+    myappid = 'nox.dimmer.v1'
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+except:
+    pass
+
+try:
+    if getattr(sys, 'frozen', False):
+        os.chdir(os.path.dirname(sys.executable))
+    else:
+        os.chdir(os.path.dirname(os.path.abspath(__file__)))
+except:
+    pass
+
 class RAMP(Structure):
     _fields_ = [("Red", ctypes.c_uint16 * 256),
                 ("Green", ctypes.c_uint16 * 256),
@@ -30,7 +44,14 @@ class RAMP(Structure):
 class RECT(Structure):
     _fields_ = [("left", c_long), ("top", c_long), ("right", c_long), ("bottom", c_long)]
 
-# --- Monitor Name Extraction ---
+class MONITORINFO(Structure):
+    _fields_ = [
+        ("cbSize", ctypes.c_ulong),
+        ("rcMonitor", RECT),
+        ("rcWork", RECT),
+        ("dwFlags", ctypes.c_ulong)
+    ]
+
 def get_real_monitor_names():
     names = []
     try:
@@ -67,7 +88,7 @@ class GammaController:
         self.restore_all()
         try:
             monitors = get_monitors()
-            real_names = get_real_monitor_names()
+            # REMOVED: real_names = get_real_monitor_names() 
         except: return
 
         for i, m in enumerate(monitors):
@@ -76,8 +97,6 @@ class GammaController:
                 original = RAMP()
                 if windll.gdi32.GetDeviceGammaRamp(hdc, byref(original)):
                     friendly_name = "Generic Monitor"
-                    if i < len(real_names):
-                        friendly_name = real_names[i]
                     
                     self.monitor_dcs.append({
                         'hdc': hdc,
@@ -117,6 +136,23 @@ class GammaController:
             except: pass
         self.monitor_dcs.clear()
 
+    def is_gamma_reset(self, monitor_index, expected_dim_percent):
+        if expected_dim_percent <= 0:
+            return False 
+            
+        hdc = self.monitor_dcs[monitor_index]['hdc']
+        current_ramp = RAMP()
+        windll.gdi32.GetDeviceGammaRamp(hdc, byref(current_ramp))
+        
+        expected_multiplier = (100 - expected_dim_percent) / 100.0
+        expected_mid_val = int(128 * 256 * expected_multiplier)
+
+        actual_mid_val = current_ramp.Green[128]
+        
+        if abs(actual_mid_val - expected_mid_val) > 2000: 
+            return True
+        return False
+
 # --- Hyper Overlay (Hyper Mode) ---
 class HyperOverlay:
     def __init__(self, root):
@@ -125,7 +161,15 @@ class HyperOverlay:
         self.active = False
         self.current_alpha = 0.0
 
-    def get_work_area(self):
+    def get_monitor_work_area(self, x, y):
+        monitor = windll.user32.MonitorFromPoint(x, y, 2)
+        if monitor:
+            info = MONITORINFO()
+            info.cbSize = ctypes.sizeof(MONITORINFO)
+            if windll.user32.GetMonitorInfoW(monitor, byref(info)):
+                r = info.rcWork
+                return (r.left, r.top, r.right - r.left, r.bottom - r.top)
+        
         rect = RECT()
         windll.user32.SystemParametersInfoW(48, 0, byref(rect), 0)
         return (rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top)
@@ -147,9 +191,10 @@ class HyperOverlay:
 
     def create_overlays(self):
         monitors = get_monitors()
-        work_x, work_y, work_w, work_h = self.get_work_area()
 
         for i, m in enumerate(monitors):
+            work_x, work_y, work_w, work_h = self.get_monitor_work_area(m.x + 10, m.y + 10)
+
             top = tk.Toplevel(self.root)
             top.title("NoxOverlay")
             top.configure(bg='black')
@@ -157,10 +202,7 @@ class HyperOverlay:
             
             top.update() 
 
-            if m.x == 0 and m.y == 0: 
-                top.geometry(f"{work_w}x{work_h}+{work_x}+{work_y}")
-            else:
-                top.geometry(f"{m.width}x{m.height}+{m.x}+{m.y}")
+            top.geometry(f"{work_w}x{work_h}+{work_x}+{work_y}")
             
             top.attributes('-topmost', True)
             top.attributes('-alpha', self.current_alpha)
@@ -277,7 +319,7 @@ class DimmerApp:
         self.overlay = HyperOverlay(root)
         
         self.MAX_DIM = 100
-        self.DEFAULT_DIM = 30 
+        self.DEFAULT_DIM = self.load_config() 
         self.is_updating = False
         
         self.colors = {
@@ -297,7 +339,10 @@ class DimmerApp:
         self.setup_ui()
         
         self.root.after(100, self.apply_default_dimming)
-        
+        self.root.after(2000, self.enforce_gamma)
+
+        threading.Thread(target=self.fetch_monitor_names_bg, daemon=True).start()
+
         self.root.bind("<FocusOut>", self.on_focus_out)
         self.root.bind('<Control-q>', lambda e: self.quit_app())
 
@@ -311,6 +356,13 @@ class DimmerApp:
     def setup_window(self):
         self.root.title("Nox dimmer")
         self.root.configure(bg=self.colors["bg"])
+        
+        try:
+            if os.path.exists("nox_icon.ico"):
+                self.root.iconbitmap("nox_icon.ico")
+        except:
+            pass
+            
         self.root.overrideredirect(True)
         self.root.attributes('-topmost', True)
 
@@ -330,19 +382,16 @@ class DimmerApp:
                  font=self.font_title)
         self.title_lbl.pack(side='left', padx=15)
         
-        # --- CLOSE BUTTON (Quits) ---
         close_btn = tk.Button(title_bar, text="✕", bg=self.colors["bg"], fg=self.colors["text"], 
                               bd=0, activebackground="#c42b1c", activeforeground="white", 
                               command=self.quit_app, font=("Arial", 11)) 
         close_btn.pack(side='right', padx=(5, 10))
         
-        # --- MINIMIZE BUTTON (Tray) ---
         min_btn = tk.Button(title_bar, text="—", bg=self.colors["bg"], fg=self.colors["text"], 
                               bd=0, activebackground=self.colors["surface"], activeforeground="white", 
                               command=self.hide_to_tray, font=("Arial", 11, "bold")) 
         min_btn.pack(side='right', padx=0)
 
-        # Hover Effects
         min_btn.bind("<Enter>", lambda e: min_btn.config(bg=self.colors["surface"]))
         min_btn.bind("<Leave>", lambda e: min_btn.config(bg=self.colors["bg"]))
         close_btn.bind("<Enter>", lambda e: close_btn.config(bg="#c42b1c", fg="white"))
@@ -364,8 +413,17 @@ class DimmerApp:
         
         req_height = 170 + (mon_count * 65) + 120
         if req_height > 600: req_height = 600
-        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        self.root.geometry(f"360x{req_height}+{sw-380}+{sh-req_height-60}")
+
+        rect = RECT()
+        windll.user32.SystemParametersInfoW(48, 0, byref(rect), 0)
+        width = 360
+        x_pos = rect.right - width
+        y_pos = rect.bottom - req_height
+        
+        # sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        # self.root.geometry(f"360x{req_height}+{sw-380}+{sh-req_height-60}")
+
+        self.root.geometry(f"{width}x{req_height}+{x_pos}+{y_pos}")
 
     def create_master_control(self, enabled=True):
         frame = ttk.Frame(self.container, style="Win.TFrame")
@@ -398,6 +456,18 @@ class DimmerApp:
             dummy.pack(fill='x')
             self.master_slider = dummy
 
+    def fetch_monitor_names_bg(self):
+        real_names = get_real_monitor_names()
+        if real_names:
+            self.root.after(0, lambda: self.update_monitor_labels(real_names))
+
+    def update_monitor_labels(self, real_names):
+        for i, name in enumerate(real_names):
+            if i < len(self.monitor_controls) and i < len(self.gamma.monitor_dcs):
+                self.gamma.monitor_dcs[i]['friendly_name'] = name
+                new_text = f"Display {i+1} • {name}"
+                self.monitor_controls[i]['name_lbl'].config(text=new_text)
+
     def create_monitor_list(self):
         for i, mon in enumerate(self.gamma.monitor_dcs):
             frame = ttk.Frame(self.container, style="Win.TFrame")
@@ -407,7 +477,9 @@ class DimmerApp:
             header.pack(fill='x', pady=(0, 5))
             
             full_name = f"Display {i+1} • {mon['friendly_name']}"
-            ttk.Label(header, text=full_name, style="Sub.TLabel").pack(side='left')
+            
+            name_lbl = ttk.Label(header, text=full_name, style="Sub.TLabel")
+            name_lbl.pack(side='left')
             
             lbl_val = ttk.Label(header, text="0%", style="Dim.TLabel", cursor="xterm")
             lbl_val.pack(side='right')
@@ -419,7 +491,7 @@ class DimmerApp:
                                   command=lambda v, idx=i, l=lbl_val: self.on_indiv_slide(v, idx, l))
             slider.pack(fill='x')
             
-            self.monitor_controls.append({'slider': slider, 'label': lbl_val, 'index': i})
+            self.monitor_controls.append({'slider': slider, 'label': lbl_val, 'index': i, 'name_lbl': name_lbl})
 
     def create_footer(self):
         frame = ttk.Frame(self.root, style="Win.TFrame")
@@ -570,29 +642,92 @@ class DimmerApp:
             return True
         except: return False
 
+    def get_config_path(self):
+        config_dir = os.path.join(os.getenv('APPDATA'), 'NoxDimmer')
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir)
+        return os.path.join(config_dir, 'config.json')
+
+    def load_config(self):
+        try:
+            with open(self.get_config_path(), 'r') as f:
+                data = json.load(f)
+                return data.get("dim_level", 30)
+        except:
+            return 30
+
+    def save_config(self):
+        try:
+            with open(self.get_config_path(), 'w') as f:
+                json.dump({"dim_level": self.master_slider.value}, f)
+        except Exception as e:
+            pass
+
+    # def toggle_autostart(self):
+    #     path = sys.executable 
+    #     try:
+    #         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_ALL_ACCESS)
+    #         if self.autostart_var.get(): winreg.SetValueEx(key, "Nox Dimmer", 0, winreg.REG_SZ, path)
+    #         else: winreg.DeleteValue(key, "Nox Dimmer")
+    #         key.Close()
+    #     except: pass
+
+    def enforce_gamma(self):
+        if not self.is_updating:
+
+            for ctrl in self.monitor_controls:
+                idx = ctrl['index']
+                expected_val = int(ctrl['slider'].value)
+                if self.gamma.is_gamma_reset(idx, expected_val):
+                    self.gamma.set_dim_level(idx, expected_val)
+        
+        self.root.after(1000, self.enforce_gamma)
+
     def toggle_autostart(self):
-        path = sys.executable 
+        if getattr(sys, 'frozen', False):
+            path = f'"{sys.executable}"'
+        else:
+            path = f'"{sys.executable}" "{os.path.abspath(__file__)}"'
+            
         try:
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_ALL_ACCESS)
-            if self.autostart_var.get(): winreg.SetValueEx(key, "Nox Dimmer", 0, winreg.REG_SZ, path)
-            else: winreg.DeleteValue(key, "Nox Dimmer")
+            if self.autostart_var.get(): 
+                winreg.SetValueEx(key, "Nox Dimmer", 0, winreg.REG_SZ, path)
+            else: 
+                try:
+                    winreg.DeleteValue(key, "Nox Dimmer")
+                except FileNotFoundError:
+                    pass
             key.Close()
-        except: pass
+        except Exception as e: 
+            print(f"Registry error: {e}")
 
     def on_focus_out(self, event):
         if self.root.focus_displayof() is None:
              self.root.after(100, lambda: self.hide_to_tray() if not self.root.focus_displayof() else None)
     
-    def hide_to_tray(self): self.root.withdraw()
+    def hide_to_tray(self): 
+        self.save_config()
+        self.root.withdraw()
+    
+    def fade_in(self):
+        alpha = self.root.attributes('-alpha')
+        if alpha < 1.0:
+            self.root.attributes('-alpha', min(alpha + 0.1, 1.0))
+            self.root.after(15, self.fade_in)
+
     def show_window(self): 
+        self.root.attributes('-alpha', 0.0)
         self.root.deiconify()
         self.root.lift()
         self.root.focus_force()
+        self.fade_in()
 
     def start_move(self, e): self.x, self.y = e.x, e.y
     def do_move(self, e): self.root.geometry(f"+{self.root.winfo_x()+(e.x-self.x)}+{self.root.winfo_y()+(e.y-self.y)}")
     
     def quit_app(self):
+        self.save_config()
         self.gamma.restore_all()
         self.overlay.destroy_overlays()
         self.icon.stop()
@@ -600,16 +735,66 @@ class DimmerApp:
         sys.exit()
 
     def setup_tray(self):
-        img = Image.new('RGB', (64, 64), (32, 32, 32)) 
-        d = ImageDraw.Draw(img)
-        d.ellipse([16, 16, 48, 48], fill="#60cdff") 
+        try:
+            if os.path.exists("nox_icon.png"):
+                img = Image.open("nox_icon.png")
+            else:
+                img = Image.new('RGB', (64, 64), (32, 32, 32)) 
+                d = ImageDraw.Draw(img)
+                d.ellipse([16, 16, 48, 48], fill="#60cdff") 
+        except:
+            img = Image.new('RGB', (64, 64), (32, 32, 32)) 
+            d = ImageDraw.Draw(img)
+            d.ellipse([16, 16, 48, 48], fill="#60cdff") 
         
-        menu = pystray.Menu(pystray.MenuItem("Show", lambda i, item: self.show_window(), default=True),
-                            pystray.MenuItem("Quit", lambda i, item: self.quit_app()))
+        menu = pystray.Menu(
+            pystray.MenuItem("Show", lambda i, item: self.root.after(0, self.show_window), default=True),
+            pystray.MenuItem("Quit", lambda i, item: self.root.after(0, self.quit_app))
+        )
         self.icon = pystray.Icon("Nox Dimmer", img, "Nox Dimmer", menu)
         threading.Thread(target=self.icon.run, daemon=True).start()
 
+WAKE_PORT = 50291
+MAGIC_WORD = b"NOX_DIMMER_WAKE"
+
+def wake_existing_instance():
+    import socket
+    try:
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(0.5) 
+        client.connect(('127.0.0.1', WAKE_PORT))
+        client.sendall(MAGIC_WORD)
+        client.close()
+        return True
+    except Exception:
+        return False
+
+def listen_for_wake(app):
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(('127.0.0.1', WAKE_PORT))
+        s.listen(1)
+        while True:
+            conn, addr = s.accept()
+            conn.settimeout(1.0)
+            try:
+                data = conn.recv(1024)
+                if data == MAGIC_WORD:
+                    app.root.after(0, app.show_window)
+            except Exception:
+                pass
+            finally:
+                conn.close()
+    except Exception as e:
+        pass
+
 if __name__ == "__main__":
-        root = tk.Tk()
-        app = DimmerApp(root)
-        root.mainloop()
+    if wake_existing_instance():
+        sys.exit()
+    
+    root = tk.Tk()
+    app = DimmerApp(root)
+    
+    threading.Thread(target=listen_for_wake, args=(app,), daemon=True).start()
+    root.mainloop()

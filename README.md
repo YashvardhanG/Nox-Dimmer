@@ -134,7 +134,7 @@ Every program is ever evolving and, that is possible only with valuable contribu
   <li>Open a Pull Request</li>
 </ol>
 
-<br>If you have any further ideas or comments, go ahead to the next section and feel free to connect! 
+<br>**Liked the app?** Please **Star ✨** the repository, and if you do want to support further, you can always <a href='https://ko-fi.com/I3I31XL6SJ' target='_blank'>buy me a coffee!</a> ☕
 
 <!-- CONTACT -->
 ## Contact

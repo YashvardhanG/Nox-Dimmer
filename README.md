@@ -74,6 +74,7 @@ The interface is designed to be intuitive and minimal.
 * **Individual Display Controls:** Below the master slider, you will see a separate slider for every monitor connected to your PC (e.g., "Display 1", "Display 2"). You can fine-tune each screen independently. 
     * *Example:* You might want your main screen bright for gaming but your secondary screen dim for reading Discord/Spotify.
 * **Run at Startup:** Check the box at the bottom left to have Nox launch quietly in the system tray every time you turn on your computer.
+* **Check for Updates:** Nox automatically checks for updates on startup, otherwise you can manually check/download update from the button.
 
 ## Installation
 

@@ -44,6 +44,9 @@ class RAMP(Structure):
 class RECT(Structure):
     _fields_ = [("left", c_long), ("top", c_long), ("right", c_long), ("bottom", c_long)]
 
+class POINT(Structure):
+    _fields_ = [("x", c_long), ("y", c_long)]
+
 class MONITORINFO(Structure):
     _fields_ = [
         ("cbSize", ctypes.c_ulong),
@@ -88,7 +91,6 @@ class GammaController:
         self.restore_all()
         try:
             monitors = get_monitors()
-            # REMOVED: real_names = get_real_monitor_names() 
         except: return
 
         for i, m in enumerate(monitors):
@@ -96,6 +98,14 @@ class GammaController:
             if hdc:
                 original = RAMP()
                 if windll.gdi32.GetDeviceGammaRamp(hdc, byref(original)):
+                    if original.Green[128] < 30000:
+                        for j in range(256):
+                            val = j * 256
+                            if val > 65535: val = 65535
+                            original.Red[j] = val
+                            original.Green[j] = val
+                            original.Blue[j] = val
+                            
                     friendly_name = "Generic Monitor"
                     
                     self.monitor_dcs.append({
@@ -162,7 +172,8 @@ class HyperOverlay:
         self.current_alpha = 0.0
 
     def get_monitor_work_area(self, x, y):
-        monitor = windll.user32.MonitorFromPoint(x, y, 2)
+        pt = POINT(x, y)
+        monitor = windll.user32.MonitorFromPoint(pt, 2)
         if monitor:
             info = MONITORINFO()
             info.cbSize = ctypes.sizeof(MONITORINFO)
@@ -342,6 +353,8 @@ class DimmerApp:
         self.root.after(2000, self.enforce_gamma)
 
         threading.Thread(target=self.fetch_monitor_names_bg, daemon=True).start()
+        
+        self.check_for_updates()
 
         self.root.bind("<FocusOut>", self.on_focus_out)
         self.root.bind('<Control-q>', lambda e: self.quit_app())
@@ -497,14 +510,28 @@ class DimmerApp:
         frame = ttk.Frame(self.root, style="Win.TFrame")
         frame.pack(side='bottom', fill='x', padx=15, pady=15)
 
+        hyper_frame = ttk.Frame(frame, style="Win.TFrame")
+        hyper_frame.pack(fill='x', side='top', pady=0)
+
         self.hyper_var = tk.BooleanVar(value=False)
-        self.chk_hyper = tk.Checkbutton(frame, text="Hyper Mode (Taskbar Visible)", variable=self.hyper_var,
+        self.chk_hyper = tk.Checkbutton(hyper_frame, text="Hyper Mode (Taskbar Visible)", variable=self.hyper_var,
                            bg=self.colors["bg"], fg=self.colors["hyper"], 
                            selectcolor=self.colors["bg"], activebackground=self.colors["bg"],
                            activeforeground=self.colors["hyper"], command=self.toggle_hyper_mode,
                            font=("Montserrat", 9, "bold"))
         
-        self.chk_hyper.pack(side='top', anchor='w', pady=0)
+        self.chk_hyper.pack(side='left', anchor='w', pady=0)
+
+        self.btn_update = tk.Button(hyper_frame, text="Check Updates", 
+                                   bg=self.colors["surface"], fg=self.colors["text_dim"],
+                                   font=("Montserrat", 8, "bold"), cursor="hand2", bd=0,
+                                   activebackground=self.colors["surface"],
+                                   activeforeground=self.colors["text_dim"],
+                                   padx=7, pady=1, command=lambda: self.check_for_updates(silent=False))
+        self.btn_update.pack(side='right', anchor='e')
+        
+        self.btn_update.bind("<Enter>", lambda e: self.btn_update.config(bg="#3a3a3a"))
+        self.btn_update.bind("<Leave>", lambda e: self.btn_update.config(bg=self.colors["surface"]))
         
         row = ttk.Frame(frame, style="Win.TFrame")
         row.pack(fill='x')
@@ -524,6 +551,58 @@ class DimmerApp:
         link.bind("<Button-1>", lambda e: webbrowser.open("https://github.com/YashvardhanG/"))
         link.bind("<Enter>", lambda e: link.config(fg=self.colors["accent"]))
         link.bind("<Leave>", lambda e: link.config(fg=self.colors["text_dim"]))
+
+    def check_for_updates(self, silent=True):
+        if not silent:
+            self.btn_update.config(text="Checking...", fg=self.colors["text_dim"])
+        self.btn_update.config(command=lambda: None)
+        threading.Thread(target=self._check_update_bg, args=(silent,), daemon=True).start()
+
+    def _check_update_bg(self, silent):
+        import urllib.request, json
+        try:
+            url = "https://api.github.com/repos/YashvardhanG/Nox-Dimmer/releases/latest"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=5) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                latest_version = data.get("tag_name", "")
+                self.latest_release_url = data.get("html_url", "https://github.com/YashvardhanG/Nox-Dimmer/releases/latest")
+
+                current_version = "v1.2"
+                
+                if latest_version == current_version:
+                    if silent:
+                        self.root.after(0, lambda: self._update_btn_state("Check Updates", self.colors["text_dim"], None))
+                    else:
+                        self.root.after(0, lambda: self._update_btn_state("Up to date", "#4caf50", None))
+                        self.root.after(2500, lambda: self._update_btn_state("Check Updates", self.colors["text_dim"], None))
+                else:
+                    self.root.after(0, lambda: self._update_btn_state("Update App", self.colors["accent"], self.latest_release_url))
+        except Exception as e:
+            if not silent:
+                self.root.after(0, lambda: self._update_btn_state("Failed", "#ff4d4d", None))
+                self.root.after(2000, lambda: self._update_btn_state("Check Updates", self.colors["text_dim"], None))
+            else:
+                self.root.after(0, lambda: self._update_btn_state("Check Updates", self.colors["text_dim"], None))
+
+    def _update_btn_state(self, text, color, url=None):
+        self.btn_update.config(text=text, fg=color)
+        if url:
+            self.btn_update.config(command=lambda u=url: webbrowser.open(u))
+        else:
+            self.btn_update.config(command=lambda: self.check_for_updates(silent=False))
+
+    def adjust_dim_level(self, delta):
+        new_val = self.master_slider.value + delta
+        if new_val < 0: new_val = 0
+        if new_val > self.MAX_DIM: new_val = self.MAX_DIM
+        self.master_slider.set(new_val)
+        self.on_master_slide(new_val)
+
+    def toggle_hyper_mode_from_tcp(self):
+        current = self.hyper_var.get()
+        self.hyper_var.set(not current)
+        self.toggle_hyper_mode()
 
     def toggle_hyper_mode(self):
         is_hyper = self.hyper_var.get()
@@ -730,7 +809,8 @@ class DimmerApp:
         self.save_config()
         self.gamma.restore_all()
         self.overlay.destroy_overlays()
-        self.icon.stop()
+        if hasattr(self, 'icon'):
+            self.icon.stop()
         self.root.quit()
         sys.exit()
 
@@ -755,15 +835,17 @@ class DimmerApp:
         threading.Thread(target=self.icon.run, daemon=True).start()
 
 WAKE_PORT = 50291
-MAGIC_WORD = b"NOX_DIMMER_WAKE"
 
-def wake_existing_instance():
+QUIT_WORD = b"NOX_DIMMER_QUIT"
+WAKE_WORD = b"NOX_DIMMER_WAKE"
+
+def send_command_to_instance(command):
     import socket
     try:
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client.settimeout(0.5) 
         client.connect(('127.0.0.1', WAKE_PORT))
-        client.sendall(MAGIC_WORD)
+        client.sendall(command)
         client.close()
         return True
     except Exception:
@@ -780,7 +862,15 @@ def listen_for_wake(app):
             conn.settimeout(1.0)
             try:
                 data = conn.recv(1024)
-                if data == MAGIC_WORD:
+                if data == b"NOX_DIM_UP":
+                    app.root.after(0, lambda: app.adjust_dim_level(10))
+                elif data == b"NOX_DIM_DOWN":
+                    app.root.after(0, lambda: app.adjust_dim_level(-10))
+                elif data == b"NOX_HYPER_TOGGLE":
+                    app.root.after(0, app.toggle_hyper_mode_from_tcp)
+                elif data == QUIT_WORD:
+                    app.root.after(0, app.quit_app)
+                elif data == WAKE_WORD:
                     app.root.after(0, app.show_window)
             except Exception:
                 pass
@@ -790,7 +880,15 @@ def listen_for_wake(app):
         pass
 
 if __name__ == "__main__":
-    if wake_existing_instance():
+    if len(sys.argv) > 1:
+        arg = sys.argv[1].lower()
+        if arg == "--quit":
+            if send_command_to_instance(QUIT_WORD):
+                import time
+                time.sleep(0.1)
+            sys.exit()
+            
+    if send_command_to_instance(WAKE_WORD):
         sys.exit()
     
     root = tk.Tk()

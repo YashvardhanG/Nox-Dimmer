@@ -11,6 +11,14 @@
   </p>
 
   <p align="center">
+  <a href="https://github.com/YashvardhanG/Nox-Dimmer/releases/latest"><img src="https://img.shields.io/github/v/release/YashvardhanG/Nox-Dimmer?style=flat-square&color=007ec6&label=Latest%20Release" alt="Version"></a>
+  <img src="https://img.shields.io/badge/Platform-Windows_10%20%7C%2011-blue?style=flat-square" alt="Platform">
+  <a href="https://github.com/YashvardhanG/Nox-Dimmer/blob/main/LICENSE"><img src="https://img.shields.io/github/license/YashvardhanG/Nox-Dimmer?style=flat-square&color=green" alt="License"></a>
+  <img src="https://img.shields.io/badge/Price-Free-brightgreen?style=flat-square" alt="Price">
+</p>
+
+
+  <p align="center">
   <a href="https://ko-fi.com/I3I31XL6SJ" target="_blank">
     <img src="https://img.shields.io/badge/Buy%20me%20a%20coffee!-%235e8bde?style=flat&logo=ko-fi&logoColor=white" alt="Buy me a coffee!">
   </a>

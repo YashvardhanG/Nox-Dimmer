@@ -73,6 +73,15 @@ The interface is designed to be intuitive and minimal.
     * *Note:* The Master slider is designed to be dimmed and inaccessible when there is only one monitor connected (to reduce confusion) - Two monitors onwards, the master slider becomes accessible
 * **Individual Display Controls:** Below the master slider, you will see a separate slider for every monitor connected to your PC (e.g., "Display 1", "Display 2"). You can fine-tune each screen independently. 
     * *Example:* You might want your main screen bright for gaming but your secondary screen dim for reading Discord/Spotify.
+* **Global System Hotkeys:** Use Nox-Dimmer with Global Shortcuts!
+
+    | Shortcut | Usage |
+    | ------------- | ------------- |
+    | `RShift + ]` or `Ctrl + Alt + ]`  | Increase Dimness (+10%) |
+    | `RShift + [` or `Ctrl + Alt + [`  | Decrease Dimness (-10%) |
+    | `RShift + \` or `Ctrl + Alt + \`  | Toggle Hyper/Normal Mode |
+
+   💡**Tip:** Hold the shortcut key to increase/decrease continuously
 * **Run at Startup:** Check the box at the bottom left to have Nox launch quietly in the system tray every time you turn on your computer.
 * **Check for Updates:** Nox automatically checks for updates on startup, otherwise you can manually check/download update from the button.
 
@@ -81,7 +90,7 @@ The interface is designed to be intuitive and minimal.
 Nox is a standalone app. 
 
 1.  Go to the **[Releases](https://github.com/YashvardhanG/Nox-Dimmer/releases)** section on the right side of this page.
-2.  Download the latest `Nox_v1.0.zip`.
+2.  Download the latest `Nox_Dimmer_[latest_version].zip`.
 3.  Extract the zip file.
 4.  Run `Nox.exe`.
 

@@ -1,7 +1,5 @@
 import tkinter as tk
 from tkinter import ttk
-import ctypes
-from ctypes import windll, byref, Structure, c_long
 from screeninfo import get_monitors
 import threading
 import pystray
@@ -13,13 +11,23 @@ import atexit
 import subprocess
 import webbrowser
 import json
+import urllib.request
+import time
+import socket
+
+try:
+    import ctypes
+    from ctypes import windll, byref, Structure, c_long
+    ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
+except Exception as e:
+    pass
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(1)
-except Exception:
+except Exception as e:
     try:
         ctypes.windll.user32.SetProcessDPIAware()
-    except Exception:
+    except Exception as e:
         pass
 
 try:
@@ -66,13 +74,16 @@ def get_real_monitor_names():
         """
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        CREATE_NO_WINDOW = 0x08000000
         
         process = subprocess.Popen(["powershell", "-Command", cmd], 
                                    stdout=subprocess.PIPE, 
                                    stderr=subprocess.PIPE, 
                                    startupinfo=startupinfo,
+                                   creationflags=CREATE_NO_WINDOW,
                                    text=True)
-        out, err = process.communicate()
+        out, err = process.communicate(timeout=5)
         if out:
             lines = out.strip().split('\n')
             names = [line.strip() for line in lines if line.strip()]
@@ -147,21 +158,28 @@ class GammaController:
         self.monitor_dcs.clear()
 
     def is_gamma_reset(self, monitor_index, expected_dim_percent):
-        if expected_dim_percent <= 0:
-            return False 
+        try:
+            if expected_dim_percent <= 0:
+                return False 
+                
+            if monitor_index >= len(self.monitor_dcs):
+                return False
+                
+            hdc = self.monitor_dcs[monitor_index]['hdc']
+            current_ramp = RAMP()
+            if not windll.gdi32.GetDeviceGammaRamp(hdc, byref(current_ramp)):
+                return False
             
-        hdc = self.monitor_dcs[monitor_index]['hdc']
-        current_ramp = RAMP()
-        windll.gdi32.GetDeviceGammaRamp(hdc, byref(current_ramp))
-        
-        expected_multiplier = (100 - expected_dim_percent) / 100.0
-        expected_mid_val = int(128 * 256 * expected_multiplier)
+            expected_multiplier = (100 - expected_dim_percent) / 100.0
+            expected_mid_val = int(128 * 256 * expected_multiplier)
 
-        actual_mid_val = current_ramp.Green[128]
-        
-        if abs(actual_mid_val - expected_mid_val) > 2000: 
-            return True
-        return False
+            actual_mid_val = current_ramp.Green[128]
+            
+            if abs(actual_mid_val - expected_mid_val) > 2000: 
+                return True
+            return False
+        except Exception as e:
+            return False
 
 # --- Hyper Overlay (Hyper Mode) ---
 class HyperOverlay:
@@ -355,6 +373,7 @@ class DimmerApp:
         threading.Thread(target=self.fetch_monitor_names_bg, daemon=True).start()
         
         self.check_for_updates()
+        self.setup_global_hotkeys()
 
         self.root.bind("<FocusOut>", self.on_focus_out)
         self.root.bind('<Control-q>', lambda e: self.quit_app())
@@ -559,7 +578,6 @@ class DimmerApp:
         threading.Thread(target=self._check_update_bg, args=(silent,), daemon=True).start()
 
     def _check_update_bg(self, silent):
-        import urllib.request, json
         try:
             url = "https://api.github.com/repos/YashvardhanG/Nox-Dimmer/releases/latest"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -568,7 +586,7 @@ class DimmerApp:
                 latest_version = data.get("tag_name", "")
                 self.latest_release_url = data.get("html_url", "https://github.com/YashvardhanG/Nox-Dimmer/releases/latest")
 
-                current_version = "v1.2"
+                current_version = "v1.3"
                 
                 if latest_version == current_version:
                     if silent:
@@ -804,15 +822,88 @@ class DimmerApp:
 
     def start_move(self, e): self.x, self.y = e.x, e.y
     def do_move(self, e): self.root.geometry(f"+{self.root.winfo_x()+(e.x-self.x)}+{self.root.winfo_y()+(e.y-self.y)}")
-    
+
+    def setup_global_hotkeys(self):
+        self.running = True
+        threading.Thread(target=self._hotkey_listener_bg, daemon=True).start()
+
+    def _hotkey_listener_bg(self):
+        VK_RSHIFT = 0xA1
+        VK_CONTROL = 0x11
+        VK_MENU = 0x12
+        VK_OEM_4 = 0xDB # [
+        VK_OEM_6 = 0xDD # ]
+        VK_OEM_5 = 0xDC # \
+
+        def is_pressed(vk):
+            return (windll.user32.GetAsyncKeyState(vk) & 0x8000) != 0
+
+        prev_lb = False
+        prev_rb = False
+        prev_bs = False
+        
+        lb_ticks = 0
+        rb_ticks = 0
+
+        while getattr(self, 'running', True):
+            try:
+                rshift = is_pressed(VK_RSHIFT)
+                ctrl = is_pressed(VK_CONTROL)
+                alt = is_pressed(VK_MENU)
+                
+                lb = is_pressed(VK_OEM_4)
+                rb = is_pressed(VK_OEM_6)
+                bs = is_pressed(VK_OEM_5)
+
+                valid_combo = (rshift and not ctrl and not alt) or (ctrl and alt and not rshift)
+
+                if lb and valid_combo:
+                    if not prev_lb:
+                        self.root.after(0, lambda: self.adjust_dim_level(-10))
+                        lb_ticks = 0
+                    else:
+                        lb_ticks += 1
+                        if lb_ticks > 25:
+                            self.root.after(0, lambda: self.adjust_dim_level(-10))
+                            lb_ticks = 22
+                else:
+                    lb_ticks = 0
+
+                if rb and valid_combo:
+                    if not prev_rb:
+                        self.root.after(0, lambda: self.adjust_dim_level(10))
+                        rb_ticks = 0
+                    else:
+                        rb_ticks += 1
+                        if rb_ticks > 25:
+                            self.root.after(0, lambda: self.adjust_dim_level(10))
+                            rb_ticks = 22
+                else:
+                    rb_ticks = 0
+
+                if bs and valid_combo:
+                    if not prev_bs:
+                        self.root.after(0, self.toggle_hyper_mode_from_tcp)
+
+                prev_lb = lb
+                prev_rb = rb
+                prev_bs = bs
+                
+                time.sleep(0.02)
+            except Exception as e:
+                time.sleep(0.1)
+
     def quit_app(self):
+        self.running = False
         self.save_config()
         self.gamma.restore_all()
         self.overlay.destroy_overlays()
         if hasattr(self, 'icon'):
             self.icon.stop()
+
         self.root.quit()
-        sys.exit()
+        self.root.destroy()
+        sys.exit(0)
 
     def setup_tray(self):
         try:
@@ -834,34 +925,56 @@ class DimmerApp:
         self.icon = pystray.Icon("Nox Dimmer", img, "Nox Dimmer", menu)
         threading.Thread(target=self.icon.run, daemon=True).start()
 
-WAKE_PORT = 50291
+WAKE_PORTS = [50291, 50292, 50293, 50294, 50295]
 
 QUIT_WORD = b"NOX_DIMMER_QUIT"
 WAKE_WORD = b"NOX_DIMMER_WAKE"
 
 def send_command_to_instance(command):
-    import socket
-    try:
-        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client.settimeout(0.5) 
-        client.connect(('127.0.0.1', WAKE_PORT))
-        client.sendall(command)
-        client.close()
-        return True
-    except Exception:
-        return False
+    for port in WAKE_PORTS:
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.settimeout(0.5) 
+            client.connect(('127.0.0.1', port))
+            client.sendall(command)
+            
+            response = client.recv(1024)
+            client.close()
+            
+            if response == b"NOX_ACK":
+                return True
+        except Exception as e:
+            pass
+    return False
 
 def listen_for_wake(app):
-    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    bound_port = None
+    
+    for port in WAKE_PORTS:
+        try:
+            s.bind(('127.0.0.1', port))
+            bound_port = port
+            break
+        except Exception as e:
+            continue
+            
+    if not bound_port:
+        return
+
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.bind(('127.0.0.1', WAKE_PORT))
         s.listen(1)
         while True:
             conn, addr = s.accept()
             conn.settimeout(1.0)
             try:
                 data = conn.recv(1024)
+                
+                try:
+                    conn.sendall(b"NOX_ACK")
+                except Exception as e:
+                    pass
+
                 if data == b"NOX_DIM_UP":
                     app.root.after(0, lambda: app.adjust_dim_level(10))
                 elif data == b"NOX_DIM_DOWN":
@@ -872,7 +985,7 @@ def listen_for_wake(app):
                     app.root.after(0, app.quit_app)
                 elif data == WAKE_WORD:
                     app.root.after(0, app.show_window)
-            except Exception:
+            except Exception as e:
                 pass
             finally:
                 conn.close()
@@ -884,7 +997,6 @@ if __name__ == "__main__":
         arg = sys.argv[1].lower()
         if arg == "--quit":
             if send_command_to_instance(QUIT_WORD):
-                import time
                 time.sleep(0.1)
             sys.exit()
             
@@ -892,7 +1004,10 @@ if __name__ == "__main__":
         sys.exit()
     
     root = tk.Tk()
+    root.withdraw()
     app = DimmerApp(root)
     
+    root.after(100, app.show_window)
+        
     threading.Thread(target=listen_for_wake, args=(app,), daemon=True).start()
     root.mainloop()

@@ -30,7 +30,7 @@
   <ol>
     <li><a href="#about">About</a></li>
     <li><a href="#modes-explained">Modes Explained</a></li>
-    <li><a href="#usage">Usage</a></li>
+    <li><a href="#usage">Features</a></li>
     <li><a href="#installation">Installation</a></li>
     <li><a href="#development-setup">Development Setup</a></li>
     <li><a href="#uninstall--cleanup">Uninstall & Cleanup</a></li>

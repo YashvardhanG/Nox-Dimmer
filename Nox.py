@@ -367,7 +367,7 @@ class DimmerApp:
         self.setup_tray()
         self.setup_ui()
         
-        self.root.after(100, self.apply_default_dimming)
+        self.root.after(200, self.apply_default_dimming)
         self.root.after(2000, self.enforce_gamma)
 
         threading.Thread(target=self.fetch_monitor_names_bg, daemon=True).start()
@@ -567,7 +567,7 @@ class DimmerApp:
                         font=self.font_italic, cursor="hand2")
         link.pack(side='right', anchor='e')
         
-        link.bind("<Button-1>", lambda e: webbrowser.open("https://github.com/YashvardhanG/"))
+        link.bind("<Button-1>", lambda e: webbrowser.open("https://github.com/YashvardhanG/Nox-Dimmer"))
         link.bind("<Enter>", lambda e: link.config(fg=self.colors["accent"]))
         link.bind("<Leave>", lambda e: link.config(fg=self.colors["text_dim"]))
 
@@ -586,7 +586,7 @@ class DimmerApp:
                 latest_version = data.get("tag_name", "")
                 self.latest_release_url = data.get("html_url", "https://github.com/YashvardhanG/Nox-Dimmer/releases/latest")
 
-                current_version = "v1.3"
+                current_version = "v1.4"
                 
                 if latest_version == current_version:
                     if silent:
@@ -616,6 +616,7 @@ class DimmerApp:
         if new_val > self.MAX_DIM: new_val = self.MAX_DIM
         self.master_slider.set(new_val)
         self.on_master_slide(new_val)
+        self.save_config()
 
     def toggle_hyper_mode_from_tcp(self):
         current = self.hyper_var.get()
@@ -819,6 +820,7 @@ class DimmerApp:
         self.root.lift()
         self.root.focus_force()
         self.fade_in()
+        self.root.after(200, lambda: self.gamma.set_dim_level(-1, int(self.master_slider.value)))
 
     def start_move(self, e): self.x, self.y = e.x, e.y
     def do_move(self, e): self.root.geometry(f"+{self.root.winfo_x()+(e.x-self.x)}+{self.root.winfo_y()+(e.y-self.y)}")

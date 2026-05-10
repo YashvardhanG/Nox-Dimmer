@@ -47,7 +47,7 @@ Many external monitors and laptop screens have a minimum hardware brightness tha
 
 It is built as a completely **portable application**. You do not need to install Python or any dependencies. Just download the executable, and it works.
 
-Read more about it here: <a href = "https://medium.com/@yashvardhang11/my-monitors-0-brightness-was-still-blinding-me-so-i-built-nox-105e078dbe7e">Medium: Nox Dimmer</a>
+Read more about it here: <a href = "https://medium.com/@yashvardhangx/my-monitors-0-brightness-was-still-blinding-me-so-i-built-nox-105e078dbe7e">Medium: Nox Dimmer</a>
 
 ## Modes Explained
 

@@ -17,6 +17,11 @@
   <img src="https://img.shields.io/badge/Price-Free-brightgreen?style=flat-square" alt="Price">
 </p>
 
+<p align="center"> 
+  <a href="https://github.com/YashvardhanG/Nox-Dimmer/releases/latest"><strong>📥 Download</strong></a> · 
+  <a href="https://github.com/YashvardhanG/Nox-Dimmer/issues"><strong>🐛 Report Bug</strong></a> · 
+  <a href="https://github.com/YashvardhanG/Nox-Dimmer/issues"><strong>💡 Request Feature</strong></a>
+</p>
 
   <p align="center">
   <a href="https://ko-fi.com/I3I31XL6SJ" target="_blank">

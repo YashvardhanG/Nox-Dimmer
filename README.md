@@ -49,11 +49,13 @@ It is built as a completely **portable application**. You do not need to install
 
 Read more about it here: <a href = "https://medium.com/@YashvardhanGx/my-monitors-0-brightness-was-still-blinding-me-so-i-built-nox-105e078dbe7e">Medium: Nox Dimmer</a>
 
+<img width="355" height="361" alt="image" src="https://github.com/user-attachments/assets/d2d3fdea-95f2-40ce-a5b6-e2570df97b24" />
+
 ## Modes Explained
 
 Nox features two distinct dimming technologies to give you complete control over your viewing experience.
 
-### 1. Normal Mode (Default)
+### 1. Normal Mode 🔅
 In this mode, Nox uses **Gamma Ramps** to adjust the brightness signal sent to your monitor. 
 * **How it works:** It manipulates the color curve of your graphics card.
 * **Best for:** General use. It lowers brightness while maintaining decent contrast.
@@ -63,17 +65,29 @@ In this mode, Nox uses **Gamma Ramps** to adjust the brightness signal sent to y
 This is for when "dark" isn't dark enough.
 * **How it works:** It combines the Gamma Ramp dimming from Normal Mode with a **transparent black overlay window** that sits on top of your desktop.
 * **Why use it:** If you want your screen to be near-pitch-black (similar to an OLED experience) without turning it off. 
-* **Smart Integration:** Unlike other dimmers that cover everything, Hyper Mode is designed to keep your **Taskbar visible** (though dimmed), so you don't lose track of your open apps.
+* **Smart Integration:** Unlike other dimmers that force you to sacrifice taskbar usability, Hyper Mode acts as a true fullscreen overlay that dynamically pushes itself out of the way when you **press the windows icon/menu button**, allowing you to instantly interact with your taskbar and start menu exactly when you need them.
+
+<p align="center"><img width="342" height="338" alt="image" src="https://github.com/user-attachments/assets/7d2b957f-865b-48a6-b216-27b97d37423a" /></p>
+
+💡**Feature:** You can switch between the two modes using hotkeys, or by using the menu and cycling the toggle button between the two!
 
 ## Usage
 
 The interface is designed to be intuitive and minimal.
 
 * **Master Slider:** This is the main control at the top. Moving this slider adjusts the brightness for **all connected monitors** simultaneously. Use this for quick, global adjustments across your entire setup. 
-    * *Note:* The Master slider is designed to be dimmed and inaccessible when there is only one monitor connected (to reduce confusion) - Two monitors onwards, the master slider becomes accessible
+    * *Note:* The Master slider is designed to be dimmed and inaccessible when there is only one monitor connected (to reduce confusion). From two monitors onwards, the master slider becomes accessible.
+<p align="center"><img width="340" height="85" alt="image" src="https://github.com/user-attachments/assets/618ccf53-98b2-4ec3-ac7f-20350a75c9b6" /></p>
+
 * **Individual Display Controls:** Below the master slider, you will see a separate slider for every monitor connected to your PC (e.g., "Display 1", "Display 2"). You can fine-tune each screen independently. 
     * *Example:* You might want your main screen bright for gaming but your secondary screen dim for reading Discord/Spotify.
-* **Global System Hotkeys:** Use Nox-Dimmer with Global Shortcuts!
+<p align="center"><img width="349" height="133" alt="image" src="https://github.com/user-attachments/assets/c33cb926-4c82-4ef1-a4ba-72c53af22219" /></p>
+
+* **Hyper Mode Toggle:** At the bottom left, a sleek button lets you quickly toggle the app between **Normal Mode** (Blue) and **Hyper Mode** (Red) depending on how dark you need your screens. This can also be triggered/toggled using the shortcut key.
+
+<p align="center"><img width="110" height="37" alt="image" src="https://github.com/user-attachments/assets/7380b43b-e8dc-4e77-9435-138a2363a235" /> <img width="106" height="37" alt="image" src="https://github.com/user-attachments/assets/353184e5-ea03-4e34-ac48-5cce61f4088a" /></p>
+
+* **Global System Hotkeys:** Use Nox-Dimmer instantly without opening the window! You can dynamically cycle your preferred shortcut behavior directly from the UI button next to Hyper Mode (**Hotkey Active** → **Right Shift only** → **Ctrl + Alt only** → **Hotkey Disabled**).
 
     | Shortcut | Usage |
     | ------------- | ------------- |
@@ -82,8 +96,15 @@ The interface is designed to be intuitive and minimal.
     | `RShift + \` or `Ctrl + Alt + \`  | Toggle Hyper/Normal Mode |
 
    💡**Tip:** Hold the shortcut key to increase/decrease continuously
+   💡**Feature:** Don't want the `RShift` Hotkey or the `Cntl+Alt` Hotkey? No issues! Use the cyclical button in the middle to toggle this! (**Hotkey Active** → **Right Shift only** → **Ctrl + Alt only** → **Hotkey Disabled**).
+
+<p align="center"><img width="113" height="39" alt="image" src="https://github.com/user-attachments/assets/baf60c05-5cf9-434e-9da7-9aac2e5bad56" /> <img width="109" height="39" alt="image" src="https://github.com/user-attachments/assets/0fba6141-bebc-4eb6-83a2-a3a6122e41fd" /> <img width="108" height="31" alt="image" src="https://github.com/user-attachments/assets/cf220765-19fe-41bf-b315-dddfdf544977" /> <img width="111" height="33" alt="image" src="https://github.com/user-attachments/assets/d27ffcc5-6e17-4cb2-8a29-d2eb23d3eb5a" /></p>
+
 * **Run at Startup:** Check the box at the bottom left to have Nox launch quietly in the system tray every time you turn on your computer.
-* **Check for Updates:** Nox automatically checks for updates on startup, otherwise you can manually check/download update from the button.
+<img width="117" height="23" alt="image" src="https://github.com/user-attachments/assets/5e54ee6c-c5d9-4a78-a8ab-c3fef7de5c52" />
+
+* **Check for Updates:** Nox automatically checks for updates on startup. You can also manually check and download updates via the button in the bottom right.
+<img width="110" height="33" alt="image" src="https://github.com/user-attachments/assets/e1e971b9-ff65-4d64-a456-5a1e932a25b0" />
 
 ## Installation
 

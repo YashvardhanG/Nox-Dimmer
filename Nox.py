@@ -129,7 +129,6 @@ class GammaController:
                     })
 
     def _build_ramp(self, dim_percent):
-        """Build a gamma ramp for the given actual dim percentage."""
         brightness = 100 - dim_percent
         multiplier = brightness / 100.0
         new_ramp = RAMP()
@@ -321,7 +320,6 @@ class HyperOverlay:
                     for win in self.windows:
                         try:
                             if win.winfo_exists():
-                                # Push overlay behind the taskbar so taskbar receives hover events and stays bright
                                 windll.user32.SetWindowPos(win.winfo_id(), hwnd_taskbar, 0, 0, 0, 0, 0x13)
                         except Exception:
                             pass
@@ -331,7 +329,6 @@ class HyperOverlay:
                     for win in self.windows:
                         try:
                             if win.winfo_exists():
-                                # Pull overlay back to absolute top to dim taskbar
                                 windll.user32.SetWindowPos(win.winfo_id(), -1, 0, 0, 0, 0, 0x13)
                         except Exception:
                             pass
@@ -446,7 +443,6 @@ class DimmerApp:
         self.is_updating = False
         self.saved_normal_dim = None
 
-        # Apply dim immediately to avoid brightness flash while probe_max_dim runs
         try:
             self.gamma.set_dim_level(-1, self.DEFAULT_DIM)
         except Exception:

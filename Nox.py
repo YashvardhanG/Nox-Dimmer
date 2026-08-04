@@ -118,21 +118,20 @@ class GammaController:
                             original.Blue[j] = val
                             
                     friendly_name = "Generic Monitor"
+                    max_dim = self.probe_max_dim(hdc)
                     
                     self.monitor_dcs.append({
                         'hdc': hdc,
                         'orig': original,
                         'name': m.name,
-                        'friendly_name': friendly_name
+                        'friendly_name': friendly_name,
+                        'max_dim': max_dim
                     })
 
-    def set_dim_level(self, monitor_index, dim_percent):
-        if dim_percent < 0: dim_percent = 0
-        if dim_percent > 100: dim_percent = 100 
-        
+    def _build_ramp(self, dim_percent):
+        """Build a gamma ramp for the given actual dim percentage."""
         brightness = 100 - dim_percent
         multiplier = brightness / 100.0
-
         new_ramp = RAMP()
         for i in range(256):
             val = int(i * 256 * multiplier)
@@ -140,14 +139,23 @@ class GammaController:
             new_ramp.Red[i] = val
             new_ramp.Green[i] = val
             new_ramp.Blue[i] = val
+        return new_ramp
+
+    def set_dim_level(self, monitor_index, dim_percent):
+        if dim_percent < 0: dim_percent = 0
+        if dim_percent > 100: dim_percent = 100 
 
         if monitor_index == -1:
             for m in self.monitor_dcs:
+                actual_dim = dim_percent / 100.0 * m.get('max_dim', 100)
+                new_ramp = self._build_ramp(actual_dim)
                 windll.gdi32.SetDeviceGammaRamp(m['hdc'], byref(new_ramp))
         else:
             if 0 <= monitor_index < len(self.monitor_dcs):
-                hdc = self.monitor_dcs[monitor_index]['hdc']
-                windll.gdi32.SetDeviceGammaRamp(hdc, byref(new_ramp))
+                m = self.monitor_dcs[monitor_index]
+                actual_dim = dim_percent / 100.0 * m.get('max_dim', 100)
+                new_ramp = self._build_ramp(actual_dim)
+                windll.gdi32.SetDeviceGammaRamp(m['hdc'], byref(new_ramp))
 
     def restore_all(self):
         for m in self.monitor_dcs:
@@ -165,21 +173,48 @@ class GammaController:
             if monitor_index >= len(self.monitor_dcs):
                 return False
                 
-            hdc = self.monitor_dcs[monitor_index]['hdc']
+            m = self.monitor_dcs[monitor_index]
+            hdc = m['hdc']
             current_ramp = RAMP()
             if not windll.gdi32.GetDeviceGammaRamp(hdc, byref(current_ramp)):
                 return False
             
-            expected_multiplier = (100 - expected_dim_percent) / 100.0
+            actual_dim = expected_dim_percent / 100.0 * m.get('max_dim', 100)
+            expected_multiplier = (100 - actual_dim) / 100.0
             expected_mid_val = int(128 * 256 * expected_multiplier)
 
             actual_mid_val = current_ramp.Green[128]
             
-            if abs(actual_mid_val - expected_mid_val) > 2000: 
+            if expected_multiplier < 0.95 and actual_mid_val >= 32000:
                 return True
             return False
         except Exception as e:
             return False
+
+    def probe_max_dim(self, hdc):
+        saved_ramp = RAMP()
+        windll.gdi32.GetDeviceGammaRamp(hdc, byref(saved_ramp))
+        max_dim = 100
+
+        for dim_percent in range(100, 0, -5):
+            test_ramp = self._build_ramp(dim_percent)
+            windll.gdi32.SetDeviceGammaRamp(hdc, byref(test_ramp))
+            
+            readback = RAMP()
+            windll.gdi32.GetDeviceGammaRamp(hdc, byref(readback))
+            
+            brightness = 100 - dim_percent
+            multiplier = brightness / 100.0
+            expected_mid = int(128 * 256 * multiplier)
+            actual_mid = readback.Green[128]
+            
+            if abs(actual_mid - expected_mid) <= 500:
+                max_dim = dim_percent
+                break
+        
+        windll.gdi32.SetDeviceGammaRamp(hdc, byref(saved_ramp))
+        
+        return max_dim
 
 # --- Hyper Overlay (Hyper Mode) ---
 class HyperOverlay:
@@ -189,14 +224,14 @@ class HyperOverlay:
         self.active = False
         self.current_alpha = 0.0
 
-    def get_monitor_work_area(self, x, y):
+    def get_monitor_full_rect(self, x, y):
         pt = POINT(x, y)
         monitor = windll.user32.MonitorFromPoint(pt, 2)
         if monitor:
             info = MONITORINFO()
             info.cbSize = ctypes.sizeof(MONITORINFO)
             if windll.user32.GetMonitorInfoW(monitor, byref(info)):
-                r = info.rcWork
+                r = info.rcMonitor
                 return (r.left, r.top, r.right - r.left, r.bottom - r.top)
         
         rect = RECT()
@@ -222,17 +257,18 @@ class HyperOverlay:
         monitors = get_monitors()
 
         for i, m in enumerate(monitors):
-            work_x, work_y, work_w, work_h = self.get_monitor_work_area(m.x + 10, m.y + 10)
+            full_x, full_y, full_w, full_h = self.get_monitor_full_rect(m.x + 10, m.y + 10)
 
             top = tk.Toplevel(self.root)
             top.title("NoxOverlay")
             top.configure(bg='black')
             top.overrideredirect(True)
-            
-            top.update() 
+            top.attributes('-alpha', 0.0)
 
-            top.geometry(f"{work_w}x{work_h}+{work_x}+{work_y}")
-            
+            top.update()
+
+            top.geometry(f"{full_w}x{full_h}+{full_x}+{full_y}")
+
             top.attributes('-topmost', True)
             top.attributes('-alpha', self.current_alpha)
 
@@ -247,7 +283,65 @@ class HyperOverlay:
 
             self.windows.append(top)
 
+        if not getattr(self, '_monitor_active', False):
+            self._monitor_active = True
+            threading.Thread(target=self._taskbar_monitor_loop, daemon=True).start()
+
+    def _taskbar_monitor_loop(self):
+        VK_LWIN = 0x5B
+        VK_RWIN = 0x5C
+        HOVER_THRESHOLD = 50 
+
+        def is_pressed(vk):
+            return (windll.user32.GetAsyncKeyState(vk) & 0x8000) != 0
+
+        hwnd_taskbar = windll.user32.FindWindowW("Shell_TrayWnd", None)
+        state_revealed = False
+
+        while getattr(self, '_monitor_active', False):
+            try:
+                if not self.active:
+                    time.sleep(0.1)
+                    continue
+
+                cursor_near = False
+                pt = POINT(0, 0)
+                if windll.user32.GetCursorPos(byref(pt)):
+                    monitors = get_monitors()
+                    for m in monitors:
+                        if m.x <= pt.x < m.x + m.width and m.y <= pt.y < m.y + m.height:
+                            if pt.y >= m.y + m.height - HOVER_THRESHOLD:
+                                cursor_near = True
+                            break
+
+                should_reveal = cursor_near
+
+                if should_reveal and not state_revealed:
+                    state_revealed = True
+                    for win in self.windows:
+                        try:
+                            if win.winfo_exists():
+                                # Push overlay behind the taskbar so taskbar receives hover events and stays bright
+                                windll.user32.SetWindowPos(win.winfo_id(), hwnd_taskbar, 0, 0, 0, 0, 0x13)
+                        except Exception:
+                            pass
+                
+                elif not should_reveal and state_revealed:
+                    state_revealed = False
+                    for win in self.windows:
+                        try:
+                            if win.winfo_exists():
+                                # Pull overlay back to absolute top to dim taskbar
+                                windll.user32.SetWindowPos(win.winfo_id(), -1, 0, 0, 0, 0, 0x13)
+                        except Exception:
+                            pass
+
+                time.sleep(0.05)
+            except Exception:
+                time.sleep(0.1)
+
     def destroy_overlays(self):
+        self._monitor_active = False
         for win in self.windows:
             try: win.destroy()
             except: pass
@@ -348,8 +442,15 @@ class DimmerApp:
         self.overlay = HyperOverlay(root)
         
         self.MAX_DIM = 100
-        self.DEFAULT_DIM = self.load_config() 
+        self.DEFAULT_DIM = self.load_config()
         self.is_updating = False
+        self.saved_normal_dim = None
+
+        # Apply dim immediately to avoid brightness flash while probe_max_dim runs
+        try:
+            self.gamma.set_dim_level(-1, self.DEFAULT_DIM)
+        except Exception:
+            pass
         
         self.colors = {
             "bg": "#202020",
@@ -368,7 +469,6 @@ class DimmerApp:
         self.setup_ui()
         
         self.root.after(200, self.apply_default_dimming)
-        self.root.after(2000, self.enforce_gamma)
 
         threading.Thread(target=self.fetch_monitor_names_bg, daemon=True).start()
         
@@ -529,29 +629,82 @@ class DimmerApp:
         frame = ttk.Frame(self.root, style="Win.TFrame")
         frame.pack(side='bottom', fill='x', padx=15, pady=15)
 
+        self.hotkey_options = [
+            "Both (RShift / Ctrl+Alt)",
+            "Ctrl + Alt only",
+            "Right Shift only",
+            "Disabled"
+        ]
+        self.hotkey_colors = {
+            "Both (RShift / Ctrl+Alt)": "#4caf50",
+            "Ctrl + Alt only":          "#60cdff",
+            "Right Shift only":         "#60cdff",
+            "Disabled":                 "#ff4d4d",
+        }
+
+        initial_hk = getattr(self, 'DEFAULT_HOTKEY_MODE', "Both (RShift / Ctrl+Alt)")
+        if initial_hk not in self.hotkey_options:
+            initial_hk = "Both (RShift / Ctrl+Alt)"
+        self.hotkey_var = tk.StringVar(value=initial_hk)
+
+        def _hk_display(val):
+            if val == "Both (RShift / Ctrl+Alt)": return "Hotkey Active"
+            if val == "Disabled":                  return "Hotkey Disabled"
+            return val
+
         hyper_frame = ttk.Frame(frame, style="Win.TFrame")
         hyper_frame.pack(fill='x', side='top', pady=0)
 
         self.hyper_var = tk.BooleanVar(value=False)
-        self.chk_hyper = tk.Checkbutton(hyper_frame, text="Hyper Mode (Taskbar Visible)", variable=self.hyper_var,
-                           bg=self.colors["bg"], fg=self.colors["hyper"], 
-                           selectcolor=self.colors["bg"], activebackground=self.colors["bg"],
-                           activeforeground=self.colors["hyper"], command=self.toggle_hyper_mode,
-                           font=("Montserrat", 9, "bold"))
-        
-        self.chk_hyper.pack(side='left', anchor='w', pady=0)
+
+        def _hyper_display(is_hyper):
+            return "Hyper Mode" if is_hyper else "Normal Mode"
+
+        def cycle_hyper_mode():
+            current = self.hyper_var.get()
+            self.hyper_var.set(not current)
+            self.toggle_hyper_mode()
+
+        self.btn_hyper = tk.Button(
+            hyper_frame, text=_hyper_display(self.hyper_var.get()),
+            bg=self.colors["surface"], fg=self.colors["accent"],
+            font=("Montserrat", 8, "bold"), cursor="hand2", bd=0,
+            activebackground=self.colors["surface"],
+            activeforeground=self.colors["accent"],
+            width=12,
+            padx=7, pady=1, command=cycle_hyper_mode
+        )
+        self.btn_hyper.pack(side='left', expand=True)
+        self.btn_hyper.bind("<Enter>", lambda e: self.btn_hyper.config(bg="#3a3a3a"))
+        self.btn_hyper.bind("<Leave>", lambda e: self.btn_hyper.config(bg=self.colors["surface"]))
+
+        init_fg = self.hotkey_colors.get(initial_hk, self.colors["text_dim"])
+        self.btn_hotkey = tk.Button(
+            hyper_frame, text=_hk_display(initial_hk),
+            bg=self.colors["surface"], fg=init_fg,
+            font=("Montserrat", 8, "bold"), cursor="hand2", bd=0,
+            activebackground=self.colors["surface"],
+            activeforeground=init_fg,
+            width=12,
+            padx=7, pady=1, command=self.cycle_hotkey_mode
+        )
+        self.btn_hotkey.pack(side='left', expand=True)
+        self.btn_hotkey.bind("<Enter>", lambda e: self.btn_hotkey.config(bg="#3a3a3a"))
+        self.btn_hotkey.bind("<Leave>", lambda e: self.btn_hotkey.config(bg=self.colors["surface"]))        
 
         self.btn_update = tk.Button(hyper_frame, text="Check Updates", 
                                    bg=self.colors["surface"], fg=self.colors["text_dim"],
                                    font=("Montserrat", 8, "bold"), cursor="hand2", bd=0,
                                    activebackground=self.colors["surface"],
-                                   activeforeground=self.colors["text_dim"],
-                                   padx=7, pady=1, command=lambda: self.check_for_updates(silent=False))
-        self.btn_update.pack(side='right', anchor='e')
-        
+                                   activeforeground=self.colors["text"],
+                                   width=13,
+                                   padx=7, pady=1)
+        self.btn_update.pack(side='left', expand=True)
         self.btn_update.bind("<Enter>", lambda e: self.btn_update.config(bg="#3a3a3a"))
         self.btn_update.bind("<Leave>", lambda e: self.btn_update.config(bg=self.colors["surface"]))
-        
+        self.check_for_updates(silent=True)
+        self.btn_hotkey.bind("<Enter>", lambda e: self.btn_hotkey.config(bg="#3a3a3a"))
+        self.btn_hotkey.bind("<Leave>", lambda e: self.btn_hotkey.config(bg=self.colors["surface"]))        
         row = ttk.Frame(frame, style="Win.TFrame")
         row.pack(fill='x')
 
@@ -571,6 +724,20 @@ class DimmerApp:
         link.bind("<Enter>", lambda e: link.config(fg=self.colors["accent"]))
         link.bind("<Leave>", lambda e: link.config(fg=self.colors["text_dim"]))
 
+    def cycle_hotkey_mode(self):
+        current = self.hotkey_var.get()
+        idx = self.hotkey_options.index(current) if current in self.hotkey_options else 0
+        next_val = self.hotkey_options[(idx + 1) % len(self.hotkey_options)]
+        self.hotkey_var.set(next_val)
+        if next_val == "Both (RShift / Ctrl+Alt)":  label = "Hotkey Active"
+        elif next_val == "Disabled":                  label = "Hotkey Disabled"
+        else:                                         label = next_val
+        color = self.hotkey_colors.get(next_val, self.colors["text_dim"])
+        self.btn_hotkey.config(text=label, fg=color, activeforeground=color)
+        self.save_config()
+
+
+
     def check_for_updates(self, silent=True):
         if not silent:
             self.btn_update.config(text="Checking...", fg=self.colors["text_dim"])
@@ -586,7 +753,7 @@ class DimmerApp:
                 latest_version = data.get("tag_name", "")
                 self.latest_release_url = data.get("html_url", "https://github.com/YashvardhanG/Nox-Dimmer/releases/latest")
 
-                current_version = "v1.4"
+                current_version = "v1.5"
                 
                 if latest_version == current_version:
                     if silent:
@@ -625,9 +792,15 @@ class DimmerApp:
 
     def toggle_hyper_mode(self):
         is_hyper = self.hyper_var.get()
-        current_val = self.master_slider.value
         
         active_color = self.colors["hyper"] if is_hyper else self.colors["accent"]
+        
+        if hasattr(self, 'btn_hyper'):
+            self.btn_hyper.config(
+                text="Hyper Mode" if is_hyper else "Normal Mode",
+                fg=active_color,
+                activeforeground=active_color
+            )
         
         if len(self.gamma.monitor_dcs) > 1:
             self.master_slider.set_accent_color(active_color)
@@ -636,13 +809,36 @@ class DimmerApp:
             ctrl['slider'].set_accent_color(active_color)
 
         if is_hyper:
-            self.overlay.update(True, current_val)
+            self.saved_normal_dim = self.master_slider.value
+            hyper_start = 50
+            self.is_updating = True
+            try:
+                self.master_slider.set(hyper_start)
+                self.lbl_master_val.config(text=f"{hyper_start}%")
+                for ctrl in self.monitor_controls:
+                    ctrl['slider'].set(hyper_start)
+                    ctrl['label'].config(text=f"{hyper_start}%")
+            finally:
+                self.is_updating = False
+            self.overlay.update(True, hyper_start)
+            self.gamma.set_dim_level(-1, hyper_start)
             self.title_lbl.config(fg=self.colors["hyper"])
         else:
             self.overlay.update(False, 0)
             self.title_lbl.config(fg=self.colors["text"])
+            restore_val = self.saved_normal_dim if self.saved_normal_dim is not None else 0
+            self.saved_normal_dim = None
+            self.is_updating = True
+            try:
+                self.master_slider.set(restore_val)
+                self.lbl_master_val.config(text=f"{int(restore_val)}%")
+                for ctrl in self.monitor_controls:
+                    ctrl['slider'].set(restore_val)
+                    ctrl['label'].config(text=f"{int(restore_val)}%")
+            finally:
+                self.is_updating = False
+            self.gamma.set_dim_level(-1, int(restore_val))
         
-        self.gamma.set_dim_level(-1, int(current_val))
         self.root.lift()
 
     def start_edit(self, event, idx, label_widget):
@@ -750,14 +946,20 @@ class DimmerApp:
         try:
             with open(self.get_config_path(), 'r') as f:
                 data = json.load(f)
+                self.DEFAULT_HOTKEY_MODE = data.get("hotkey_mode", "Both (RShift / Ctrl+Alt)")
                 return data.get("dim_level", 30)
         except:
+            self.DEFAULT_HOTKEY_MODE = "Both (RShift / Ctrl+Alt)"
             return 30
 
     def save_config(self):
         try:
+            hk_mode = self.hotkey_var.get() if hasattr(self, 'hotkey_var') else getattr(self, 'DEFAULT_HOTKEY_MODE', "Both (RShift / Ctrl+Alt)")
             with open(self.get_config_path(), 'w') as f:
-                json.dump({"dim_level": self.master_slider.value}, f)
+                json.dump({
+                    "dim_level": self.master_slider.value,
+                    "hotkey_mode": hk_mode
+                }, f)
         except Exception as e:
             pass
 
@@ -772,14 +974,20 @@ class DimmerApp:
 
     def enforce_gamma(self):
         if not self.is_updating:
-
             for ctrl in self.monitor_controls:
                 idx = ctrl['index']
                 expected_val = int(ctrl['slider'].value)
                 if self.gamma.is_gamma_reset(idx, expected_val):
                     self.gamma.set_dim_level(idx, expected_val)
-        
         self.root.after(1000, self.enforce_gamma)
+        
+    def enforce_overlay(self):
+        if self.hyper_var.get() and self.overlay.active:
+            alive = [w for w in self.overlay.windows if w.winfo_exists()]
+            if len(alive) < len(self.overlay.windows) or not alive:
+                self.overlay.windows = alive
+                self.overlay.update(True, self.master_slider.value)
+        self.root.after(2000, self.enforce_overlay)
 
     def toggle_autostart(self):
         if getattr(sys, 'frozen', False):
@@ -857,7 +1065,17 @@ class DimmerApp:
                 rb = is_pressed(VK_OEM_6)
                 bs = is_pressed(VK_OEM_5)
 
-                valid_combo = (rshift and not ctrl and not alt) or (ctrl and alt and not rshift)
+                hk_mode = getattr(self, 'hotkey_var', None)
+                mode_str = hk_mode.get() if hk_mode else getattr(self, 'DEFAULT_HOTKEY_MODE', "Both (RShift / Ctrl+Alt)")
+
+                if mode_str == "Disabled":
+                    valid_combo = False
+                elif mode_str == "Ctrl + Alt only":
+                    valid_combo = ctrl and alt and not rshift
+                elif mode_str == "Right Shift only":
+                    valid_combo = rshift and not ctrl and not alt
+                else:
+                    valid_combo = (rshift and not ctrl and not alt) or (ctrl and alt and not rshift)
 
                 if lb and valid_combo:
                     if not prev_lb:

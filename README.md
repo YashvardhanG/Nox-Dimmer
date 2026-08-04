@@ -96,6 +96,7 @@ The interface is designed to be intuitive and minimal.
     | `RShift + \` or `Ctrl + Alt + \`  | Toggle Hyper/Normal Mode |
 
    💡**Tip:** Hold the shortcut key to increase/decrease continuously
+  
    💡**Feature:** Don't want the `RShift` Hotkey or the `Cntl+Alt` Hotkey? No issues! Use the cyclical button in the middle to toggle this! (**Hotkey Active** → **Right Shift only** → **Ctrl + Alt only** → **Hotkey Disabled**).
 
 <p align="center"><img width="113" height="39" alt="image" src="https://github.com/user-attachments/assets/baf60c05-5cf9-434e-9da7-9aac2e5bad56" /> <img width="109" height="39" alt="image" src="https://github.com/user-attachments/assets/0fba6141-bebc-4eb6-83a2-a3a6122e41fd" /> <img width="108" height="31" alt="image" src="https://github.com/user-attachments/assets/cf220765-19fe-41bf-b315-dddfdf544977" /> <img width="111" height="33" alt="image" src="https://github.com/user-attachments/assets/d27ffcc5-6e17-4cb2-8a29-d2eb23d3eb5a" /></p>
